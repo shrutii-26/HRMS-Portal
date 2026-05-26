@@ -1,4 +1,4 @@
-# Recruitment page — resume upload, job description input, and AI screening results
+# Recruitment page — resume upload (PDF or DOCX), job description input, and AI screening results
 import streamlit as st
 import httpx
 import os
@@ -7,7 +7,6 @@ from dotenv import load_dotenv
 load_dotenv()
 BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
 
-# Emoji map for recommendation display
 RECOMMENDATION_EMOJI = {
     "strong_yes": "🟢 Strong Yes",
     "yes": "🟡 Yes",
@@ -31,7 +30,14 @@ def render():
             department = st.selectbox("Department", ["Software Engineering", "Operations", "Sales"])
 
         with col2:
-            resume_file = st.file_uploader("Upload Resume (PDF)", type=["pdf"])
+            # Accept both PDF and DOCX
+            resume_file = st.file_uploader(
+                "Upload Resume (PDF or DOCX)",
+                type=["pdf", "docx"]
+            )
+            if resume_file:
+                ext = resume_file.name.split(".")[-1].upper()
+                st.caption(f"📄 Uploaded: `{resume_file.name}` ({ext})")
 
         job_description = st.text_area(
             "Job Description",
@@ -43,12 +49,19 @@ def render():
 
     if submitted:
         if not candidate_name or not applied_role or not resume_file or not job_description:
-            st.error("Please fill in all fields and upload a resume PDF.")
+            st.error("Please fill in all fields and upload a resume (PDF or DOCX).")
             return
 
         with st.spinner("🤖 AI is analyzing the candidate... This may take 30-60 seconds."):
             try:
-                files = {"resume_file": (resume_file.name, resume_file.getvalue(), "application/pdf")}
+                files = {
+                    "resume_file": (
+                        resume_file.name,
+                        resume_file.getvalue(),
+                        "application/pdf" if resume_file.name.endswith(".pdf")
+                        else "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                    )
+                }
                 form_data = {
                     "candidate_name": candidate_name,
                     "applied_role": applied_role,
@@ -74,7 +87,6 @@ def render():
         st.markdown("---")
         st.subheader("📊 Screening Results")
 
-        # Metrics row
         m1, m2, m3 = st.columns(3)
         with m1:
             st.metric("Overall Score", f"{result['overall_score']:.1f} / 10")
@@ -84,10 +96,8 @@ def render():
             rec_display = RECOMMENDATION_EMOJI.get(result["recommendation"], result["recommendation"])
             st.metric("Recommendation", rec_display)
 
-        # Reasoning
         st.info(f"**Reasoning:** {result['reasoning']}")
 
-        # Skills columns
         col_match, col_gap = st.columns(2)
         with col_match:
             st.markdown("#### ✅ Matched Skills")
@@ -105,7 +115,6 @@ def render():
             else:
                 st.markdown("_No skill gaps identified._")
 
-        # Interview questions (only if present)
         if result.get("interview_questions"):
             st.markdown("---")
             st.subheader("🎤 Interview Questions")
