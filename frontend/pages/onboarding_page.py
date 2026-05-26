@@ -1,123 +1,165 @@
-# Onboarding page — select an employee and generate a full onboarding plan
 import streamlit as st
 import httpx
 import os
-from dotenv import load_dotenv
 
-load_dotenv()
-BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
+BACKEND = os.getenv("BACKEND_URL", "http://localhost:8000")
 
-# Hardcoded employee options for the selectbox (id, name, role, department, manager)
-EMPLOYEE_OPTIONS = {
-    "Arjun Mehta — Senior SDE (Software Engineering)": {
-        "employee_id": 1, "employee_name": "Arjun Mehta",
-        "role": "Senior SDE", "department": "Software Engineering", "manager_name": "Tech Lead"
+EMPLOYEES = {
+    "Arjun Mehta": {
+        "id": 1,
+        "role": "Senior SDE",
+        "dept": "software_engineering",
+        "mgr": "Rohit Verma",
     },
-    "Priya Sharma — SDE II (Software Engineering)": {
-        "employee_id": 2, "employee_name": "Priya Sharma",
-        "role": "SDE II", "department": "Software Engineering", "manager_name": "Tech Lead"
+    "Priya Sharma": {
+        "id": 2,
+        "role": "SDE II",
+        "dept": "software_engineering",
+        "mgr": "Rohit Verma",
     },
-    "Suresh Reddy — Ops Manager (Operations)": {
-        "employee_id": 5, "employee_name": "Suresh Reddy",
-        "role": "Ops Manager", "department": "Operations", "manager_name": "VP Operations"
+    "Suresh Reddy": {
+        "id": 5,
+        "role": "Ops Manager",
+        "dept": "operations",
+        "mgr": "Director Ops",
     },
-    "Kavita Nair — Process Analyst (Operations)": {
-        "employee_id": 6, "employee_name": "Kavita Nair",
-        "role": "Process Analyst", "department": "Operations", "manager_name": "Ops Manager"
+    "Kavita Nair": {
+        "id": 6,
+        "role": "Process Analyst",
+        "dept": "operations",
+        "mgr": "Suresh Reddy",
     },
-    "Sunita Joshi — Account Executive (Sales)": {
-        "employee_id": 8, "employee_name": "Sunita Joshi",
-        "role": "Account Executive", "department": "Sales", "manager_name": "Sales Manager"
+    "Sunita Joshi": {
+        "id": 8,
+        "role": "Account Executive",
+        "dept": "sales",
+        "mgr": "Vijay Patel",
     },
-    "Vijay Patel — Sales Manager (Sales)": {
-        "employee_id": 9, "employee_name": "Vijay Patel",
-        "role": "Sales Manager", "department": "Sales", "manager_name": "VP Sales"
+    "Vijay Patel": {
+        "id": 9,
+        "role": "Sales Manager",
+        "dept": "sales",
+        "mgr": "VP Sales",
     },
 }
 
 
 def render():
-    """Render the onboarding plan generation page."""
-    st.title("📋 Onboarding Plan Generator")
-    st.markdown("Select an employee to generate a comprehensive AI-powered onboarding plan.")
-    st.markdown("---")
+    st.header("📋 Onboarding Plan Generator")
 
-    with st.form("onboarding_form"):
-        selected = st.selectbox("Select Employee", list(EMPLOYEE_OPTIONS.keys()))
-        submitted = st.form_submit_button("🚀 Generate Onboarding Plan", use_container_width=True)
+    mode = st.radio(
+        "How do you want to proceed?",
+        ["Choose from existing employees", "Enter new employee manually"],
+        horizontal=True,
+    )
 
-    if submitted:
-        emp = EMPLOYEE_OPTIONS[selected]
+    st.divider()
 
-        with st.spinner("🤖 AI is generating the onboarding plan... This may take 60-90 seconds."):
-            try:
-                response = httpx.post(
-                    f"{BACKEND_URL}/onboarding/generate",
-                    json=emp,
-                    timeout=120.0
+    if mode == "Choose from existing employees":
+        with st.form("onb_existing"):
+            emp_label = st.selectbox("Select Employee", list(EMPLOYEES.keys()))
+            submitted = st.form_submit_button(
+                "Generate Onboarding Plan", type="primary", use_container_width=True
+            )
+
+        if submitted:
+            emp = EMPLOYEES[emp_label]
+            payload = {
+                "employee_id": emp["id"],
+                "employee_name": emp_label,
+                "role": emp["role"],
+                "department": emp["dept"],
+                "manager_name": emp["mgr"],
+            }
+            _run_and_display(payload)
+
+    else:
+        with st.form("onb_manual"):
+            col1, col2 = st.columns(2)
+            with col1:
+                name = st.text_input("Full Name", placeholder="e.g. Ravi Kumar")
+                role = st.text_input("Role / Title", placeholder="e.g. Data Analyst")
+            with col2:
+                dept = st.selectbox(
+                    "Department", ["software_engineering", "operations", "sales"]
                 )
-                response.raise_for_status()
-                result = response.json()
-            except httpx.HTTPStatusError as e:
-                st.error(f"Backend error: {e.response.status_code} — {e.response.text}")
+                manager = st.text_input("Manager Name", placeholder="e.g. Suresh Reddy")
+
+            submitted = st.form_submit_button(
+                "Generate Onboarding Plan", type="primary", use_container_width=True
+            )
+
+        if submitted:
+            if not all([name.strip(), role.strip(), manager.strip()]):
+                st.warning("Please fill in Name, Role, and Manager Name.")
                 return
-            except Exception as e:
-                st.error(f"Connection error: {str(e)}")
-                return
 
-        # Display results in tabs
-        st.markdown("---")
-        st.subheader(f"📋 Onboarding Plan for {emp['employee_name']}")
+            payload = {
+                "employee_id": 0,  # 0 = not a seeded employee
+                "employee_name": name.strip(),
+                "role": role.strip(),
+                "department": dept,
+                "manager_name": manager.strip(),
+            }
+            _run_and_display(payload)
 
-        tab1, tab2, tab3, tab4 = st.tabs([
-            "📝 Checklist", "📚 Training Roadmap", "🔧 Tools Access", "📅 First Week"
-        ])
 
-        with tab1:
-            st.markdown("#### 30-Day Onboarding Checklist")
-            if result["checklist"]:
-                for item in result["checklist"]:
-                    st.markdown(
-                        f"- **Day {item.get('day', '?')}** — {item.get('task', '')} "
-                        f"_(Owner: {item.get('owner', 'TBD')} | Category: {item.get('category', 'N/A')})_"
-                    )
-            else:
-                st.info("No checklist items generated.")
+def _run_and_display(payload: dict):
+    with st.spinner(
+        f"Generating onboarding plan for {payload['employee_name']}... (~30–40s)"
+    ):
+        try:
+            response = httpx.post(
+                f"{BACKEND}/onboarding/generate", json=payload, timeout=120
+            )
+            response.raise_for_status()
+            r = response.json()
+        except httpx.HTTPError as e:
+            st.error(f"Backend error: {e}")
+            return
 
-        with tab2:
-            st.markdown("#### 90-Day Training Roadmap")
-            if result["training_roadmap"]:
-                for item in result["training_roadmap"]:
-                    st.markdown(
-                        f"- **Week {item.get('week', '?')}** — {item.get('topic', '')} "
-                        f"_({item.get('type', 'N/A')})_ → {item.get('outcome', '')}"
-                    )
-            else:
-                st.info("No training roadmap generated.")
+    st.success(
+        f"Onboarding plan ready for **{payload['employee_name']}** ({payload['role']})"
+    )
 
-        with tab3:
-            st.markdown("#### Tools & System Access")
-            if result["tools_access"]:
-                for item in result["tools_access"]:
-                    priority_emoji = {"day-1": "🔴", "week-1": "🟡", "month-1": "🟢"}.get(
-                        item.get("priority", ""), "⚪"
-                    )
-                    st.markdown(
-                        f"- {priority_emoji} **{item.get('tool', '')}** — {item.get('purpose', '')} "
-                        f"_(Priority: {item.get('priority', 'N/A')})_"
-                    )
-            else:
-                st.info("No tools access list generated.")
+    tab1, tab2, tab3, tab4 = st.tabs(
+        [
+            "✅ 30-Day Checklist",
+            "📚 Training Roadmap",
+            "🛠 Tools Access",
+            "📅 First Week",
+        ]
+    )
 
-        with tab4:
-            st.markdown("#### First Week Schedule")
-            if result["first_week"]:
-                for day_schedule in result["first_week"]:
-                    st.markdown(f"**{day_schedule.get('day', 'Day')}**")
-                    for activity in day_schedule.get("activities", []):
-                        st.markdown(
-                            f"  - 🕐 {activity.get('time', '')} — {activity.get('activity', '')} "
-                            f"_(with {activity.get('with_whom', 'TBD')})_"
-                        )
-            else:
-                st.info("No first week schedule generated.")
+    with tab1:
+        st.subheader("30-Day Onboarding Checklist")
+        for item in r.get("checklist", []):
+            st.write(
+                f"**Day {item.get('day', '?')}** · "
+                f"`{item.get('category', '')}` · "
+                f"_{item.get('owner', '')}_ — {item.get('task', '')}"
+            )
+
+    with tab2:
+        st.subheader("90-Day Training Roadmap")
+        for item in r.get("training_roadmap", []):
+            st.write(
+                f"**Week {item.get('week', '?')}** · `{item.get('type', '')}` — {item.get('topic', '')}"
+            )
+            st.caption(f"Outcome: {item.get('outcome', '')}")
+
+    with tab3:
+        st.subheader("Tools & System Access")
+        for item in r.get("tools_access", []):
+            badge = "🔴" if item.get("priority") == "high" else "🟡"
+            st.write(f"{badge} **{item.get('tool', '')}** — {item.get('purpose', '')}")
+
+    with tab4:
+        st.subheader("First Week Schedule")
+        for day in r.get("first_week", []):
+            st.markdown(f"**{day.get('day', '')}**")
+            for act in day.get("activities", []):
+                st.write(
+                    f"  {act.get('time', '')} · {act.get('activity', '')} "
+                    f"_(with {act.get('with_whom', 'team')})_"
+                )

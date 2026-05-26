@@ -1,0 +1,12 @@
+venv/
+.venv/
+
+__pycache__/
+*.pyc
+
+.env
+hrms.db
+
+.vscode/
+.idea/
+.streamlit/
