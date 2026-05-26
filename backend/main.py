@@ -6,6 +6,11 @@ import fitz  # PyMuPDF
 import docx  # python-docx
 from fastapi import FastAPI, UploadFile, File, Form, Depends
 from sqlalchemy.orm import Session
+from langchain_groq import ChatGroq
+from langchain_core.messages import SystemMessage, HumanMessage
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from backend.db.database import init_db, get_db
 from backend.db.models import Candidate, OnboardingPlan, PerformanceReview
@@ -15,15 +20,10 @@ from backend.agents.performance import performance_graph
 
 app = FastAPI(title="HRMS AI Portal", version="1.0.0")
 
-# Accepted MIME types and their labels
-ACCEPTED_TYPES = {
-    "application/pdf": "pdf",
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
-    # browsers sometimes send this for .docx
-    "application/octet-stream": "docx",
-}
+# --- LLM instance for resume validation (lightweight check) ---
+llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0.0)
 
-# --- Hardcoded response returned when a corrupted or unreadable file is uploaded ---
+# --- Hardcoded response: corrupted or unreadable file ---
 CORRUPTED_FILE_RESPONSE = {
     "candidate_id": None,
     "candidate_name": "Unknown",
@@ -35,6 +35,24 @@ CORRUPTED_FILE_RESPONSE = {
         "The uploaded resume could not be processed. "
         "The file appears to be corrupted, password-protected, or in an unsupported format. "
         "Please upload a valid PDF (.pdf) or Word document (.docx) and try again."
+    ),
+    "matched_skills": [],
+    "missing_skills": [],
+    "interview_questions": [],
+}
+
+# --- Hardcoded response: file is not a resume ---
+NOT_A_RESUME_RESPONSE = {
+    "candidate_id": None,
+    "candidate_name": "Unknown",
+    "applied_role": "Unknown",
+    "overall_score": 0.0,
+    "skill_score": 0.0,
+    "recommendation": "no",
+    "reasoning": (
+        "The uploaded document does not appear to be a resume. "
+        "We only process candidate resumes. "
+        "Please upload a valid resume and try again."
     ),
     "matched_skills": [],
     "missing_skills": [],
@@ -110,6 +128,30 @@ def extract_text_from_file(file_bytes: bytes, filename: str, content_type: str) 
     )
 
 
+def is_resume(text: str) -> bool:
+    """
+    Ask the LLM if the extracted text is a resume.
+    Returns True if it looks like a resume, False otherwise.
+    Uses only the first 2000 chars to keep it fast and cheap.
+    """
+    snippet = text[:2000]
+    result = llm.invoke(
+        [
+            SystemMessage(
+                content=(
+                    "You are a document classifier. "
+                    "Your only job is to decide if the given text is a resume or CV. "
+                    "A resume typically contains: name, contact info, work experience, education, skills. "
+                    "Reply with ONLY one word: YES or NO. Nothing else."
+                )
+            ),
+            HumanMessage(content=f"Is this a resume?\n\n{snippet}"),
+        ]
+    )
+    answer = result.content.strip().upper()
+    return answer.startswith("YES")
+
+
 @app.on_event("startup")
 def on_startup():
     """Initialize the database tables on server start."""
@@ -125,11 +167,11 @@ def analyze_candidate(
     resume_file: UploadFile = File(...),
     db: Session = Depends(get_db),
 ):
-    """Parse a PDF or DOCX resume, run the recruitment graph, save and return results."""
+    """Parse a PDF or DOCX resume, validate it, run the recruitment graph, save and return results."""
 
     file_bytes = resume_file.file.read()
 
-    # --- Corrupted / unsupported file guard ---
+    # --- Step 1: Extract text (corrupted file guard) ---
     try:
         resume_text = extract_text_from_file(
             file_bytes, resume_file.filename or "", resume_file.content_type or ""
@@ -140,6 +182,14 @@ def analyze_candidate(
         response["applied_role"] = applied_role
         return response
 
+    # --- Step 2: Check if document is actually a resume ---
+    if not is_resume(resume_text):
+        response = dict(NOT_A_RESUME_RESPONSE)
+        response["candidate_name"] = candidate_name
+        response["applied_role"] = applied_role
+        return response
+
+    # --- Step 3: Run recruitment graph ---
     initial_state = {
         "resume_text": resume_text,
         "job_description": job_description,
