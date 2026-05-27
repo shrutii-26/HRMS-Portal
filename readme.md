@@ -3,7 +3,6 @@
 An AI-powered Human Resource Management System built with **FastAPI**, **Streamlit**, **LangGraph**, and **Groq (LLaMA 3.3 70B)**. The portal automates three core HR workflows — recruitment screening, employee onboarding, and performance reviews — using multi-step LangGraph agent pipelines.
 
 🔗 **Live Demo:** https://hrms-app-shruti.streamlit.app/  
-🔗 **Backend API Docs:** https://hrms-backend-7prt.onrender.com/docs
 
 ---
 
